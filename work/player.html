@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>カットプレイヤー</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#111;--fg:#eee;--ac:#ffd400;--mut:#888;--tp:300px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,"Yu Gothic",sans-serif}
+#top{position:sticky;top:0;z-index:5;background:#000;padding:8px;border-bottom:1px solid #333}
+#row{display:flex;gap:12px;align-items:flex-start}
+#box{width:min(55vw,900px);aspect-ratio:16/9;max-height:50vh;background:#000;flex:none;position:relative}
+video{width:100%;height:100%;display:block}
+#novid{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#f88;text-align:center;padding:16px}
+#ctl{display:flex;flex-direction:column;gap:6px;min-width:0}
+button,a.btn{background:#222;color:var(--fg);border:1px solid #444;border-radius:6px;padding:5px 9px;font:inherit;cursor:pointer;margin:0 4px 4px 0}
+button.on{background:var(--ac);color:#000;border-color:var(--ac)}
+#info{color:var(--mut);font-size:12px}#cur{color:var(--ac);font-size:18px}
+#main{display:flex;align-items:flex-start}
+#side{position:sticky;top:var(--tp);width:210px;flex:none;max-height:calc(100vh - var(--tp));overflow:auto;padding:8px;border-right:1px solid #333}
+#side h4{margin:4px 0 8px;font-size:12px;color:var(--mut)}
+.f{display:flex;align-items:center;gap:4px;padding:6px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+.f:hover{background:#222}.f.on{background:#2a2600;border-color:var(--ac)}.f.drop{border-color:#fff;background:#333}
+.f .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.f .k{color:var(--mut);font-size:12px}
+.f .x{opacity:.0;padding:0 4px}.f:hover .x{opacity:.8}
+#grid{flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;padding:8px;min-width:0}
+.c{position:relative;cursor:pointer;aspect-ratio:16/9;background:#222;outline:3px solid transparent}
+.c img{width:100%;height:100%;object-fit:cover;display:block}
+.c span{position:absolute;left:0;bottom:0;right:0;background:rgba(0,0,0,.7);color:var(--ac);padding:1px 6px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c .add,.c .rm{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.75);border:1px solid #666;border-radius:6px;padding:2px 8px;display:none;margin:0}
+.c:hover .add,.c:hover .rm{display:block}
+.c .in{position:absolute;top:4px;left:4px;background:var(--ac);color:#000;border-radius:6px;padding:0 6px;font-size:11px}
+.c .d{position:absolute;left:0;top:0;right:0;background:rgba(0,0,0,.6);color:#fff;padding:2px 6px;font-size:11px;display:none}.c:hover .d{display:block}
+.c.act{outline-color:var(--ac)}.c:hover{outline-color:#fff}
+#menu{position:fixed;z-index:20;background:#222;border:1px solid #666;border-radius:8px;padding:4px;display:none;max-height:60vh;overflow:auto;min-width:160px}
+#menu div{padding:6px 10px;cursor:pointer;border-radius:4px}#menu div:hover{background:#444}
+@media(max-width:800px){#row{flex-direction:column}#box{width:100%}#side{width:130px}}
+</style></head><body>
+<div id="top"><div id="row">
+<div id="box"><video id="v" controls preload="metadata"></video><div id="novid"></div></div>
+<div id="ctl">
+<div><input id="q" type="search" placeholder="ワード検索（例: 少女 屋上 雨 ／ スペースでAND、全動画が対象）" style="width:min(440px,100%);padding:6px 10px;border-radius:6px;border:1px solid #666;background:#1b1b1b;color:#eee;font:inherit"> <span id="qn" style="color:#888"></span></div>
+<div id="tabs"></div><div id="flt"></div>
+<div id="cur">-</div>
+<div id="info">サムネをクリックでその時間へジャンプ / ←→で前後 / Spaceで再生停止 / サムネの「＋」かドラッグで左のフォルダへ追加</div>
+<div id="warn" style="color:#f88"></div>
+</div></div></div>
+<div id="main">
+<div id="side"><h4>フォルダ</h4><div id="flist"></div>
+<button id="newf" style="margin-top:8px">＋ 新しいフォルダ</button>
+<div style="margin-top:12px"><button id="exp">書き出し</button><button id="imp">読み込み</button></div>
+<div class="k" style="color:#888;font-size:11px;margin-top:6px">フォルダはこのブラウザに自動保存されます</div></div>
+<div id="grid"></div></div>
+<div id="menu"></div>
+<script src="data.js"></script>
+<script>
+/* カットデータは data.js に分離しました（const D） */
+const SK="cutplayer.folders.v1";
+let Q="",cur=D[0],flt="all",view="src",list=[],actIdx=-1,pendingSeek=null,activeSrc=null;
+let F={folders:[]};try{F=JSON.parse(localStorage.getItem(SK)||'{"folders":[]}')}catch(e){}
+const save=()=>{try{localStorage.setItem(SK,JSON.stringify(F))}catch(e){}};
+const v=document.getElementById("v"),grid=document.getElementById("grid"),$=id=>document.getElementById(id);
+const fmt=t=>{t=Math.floor(t);const h=Math.floor(t/3600),m=Math.floor(t%3600/60),s=t%60;return (h?h+":":"")+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")};
+const pad=n=>String(n).padStart(5,"0");
+const ik=(d,c)=>d.key+":"+c[0];
+const byKey=k=>D.find(d=>d.key===k);
+function mk(box,items,sel,cb){box.innerHTML="";items.forEach(([k,l])=>{const b=document.createElement("button");b.textContent=l;if(k==sel)b.className="on";b.onclick=()=>cb(k);box.appendChild(b)})}
+function imgUrl(d,c){return d.kind==="eve"?d.base+encodeURI(c[2]):d.img.replace("%s",pad(c[0]))}
+function setTp(){document.documentElement.style.setProperty("--tp",$("top").offsetHeight+"px")}
+/* ---- playback ---- */
+function loadSource(d){
+  const changed=activeSrc!==d.key;activeSrc=d.key;cur=d;
+  $("warn").textContent="";
+  if(!d.src){v.pause();v.removeAttribute("src");v.load();v.style.visibility="hidden";$("novid").style.display="flex";$("novid").textContent="この曲の動画ファイルがPC内に見つかりません（サムネだけ表示）";return}
+  v.style.visibility="visible";$("novid").style.display="none";
+  if(changed){v.src=d.src}
+}
+function seekTo(t){
+  const go=()=>{v.currentTime=t;v.play().catch(()=>{})};
+  if(v.readyState>=1)go();else{pendingSeek=t}
+}
+v.addEventListener("loadedmetadata",()=>{if(pendingSeek!=null){const t=pendingSeek;pendingSeek=null;v.currentTime=t;v.play().catch(()=>{})}});
+function jumpItem(it){ // it={d,c}
+  if(activeSrc!==it.d.key){loadSource(it.d);if(!it.d.src)return;pendingSeek=it.c[1]+0.05;if(v.readyState>=1&&false){}}
+  else seekTo(it.c[1]+0.05);
+}
+/* ---- views ---- */
+function render(){
+  mk($("tabs"),D.map(d=>[d.key,d.label]),view==="src"&&!Q?cur.key:"",k=>{Q="";$("q").value="";view="src";flt="all";loadSource(byKey(k));render();buildGrid()});
+  const f=[];
+  if(view==="src"&&!Q){f.push(["all","全カット ("+cur.cuts.length+")"]);
+    if(cur.yes.length)f.push(["yes","Tシャツの男の子 ("+cur.yes.length+")"],["yu","＋微妙 ("+(cur.yes.length+cur.unsure.length)+")"]);}
+  mk($("flt"),f,flt,k=>{flt=k;render();buildGrid()});
+  renderFolders();
+}
+function dtext(d,c){const ds=d.desc[c[0]];return ((ds?ds.join(" "):"")+" "+(c[3]||"")+" "+d.label+" #"+c[0]).toLowerCase()}
+function inFolders(key){return F.folders.filter(f=>f.items.includes(key))}
+function buildGrid(){
+  let items;
+  if(Q){
+    const ws=Q.toLowerCase().split(/\s+/).filter(Boolean);items=[];
+    D.forEach(d=>d.cuts.forEach(c=>{const t=dtext(d,c);if(ws.every(w=>t.includes(w)))items.push({d,c})}));
+    $("qn").textContent=items.length+"件";
+  }else if(view==="src"){
+    const ok=new Set(flt=="yes"?cur.yes:flt=="yu"?cur.yes.concat(cur.unsure):[]);
+    items=cur.cuts.filter(c=>flt=="all"||ok.has(c[0])).map(c=>({d:cur,c}));
+  }else{
+    const f=F.folders.find(x=>x.id===view);items=[];
+    if(f)f.items.forEach(k=>{const [dk,n]=k.split(":"),d=byKey(dk);if(!d)return;const c=d.cuts.find(c=>String(c[0])===n);if(c)items.push({d,c})});
+  }
+  if(!Q)$("qn").textContent="";
+  list=items;grid.innerHTML="";
+  const un=new Set(cur.unsure);
+  items.forEach((it,i)=>{
+    const e=document.createElement("div");e.className="c";e.draggable=true;
+    e.ondragstart=ev=>{ev.dataTransfer.setData("text/plain",ik(it.d,it.c))};
+    const img=document.createElement("img");img.loading="lazy";img.decoding="async";img.src=imgUrl(it.d,it.c);
+    const sp=document.createElement("span");
+    const ds=it.d.desc[it.c[0]];
+    sp.textContent=(view!=="src"||Q?it.d.label+" ":"")+"#"+it.c[0]+" "+fmt(it.c[1])+(view==="src"&&flt=="yu"&&un.has(it.c[0])?" ?":"")+(it.c[3]?"  "+it.c[3]:"")+(ds&&(Q||true)?"  "+ds[1]:"");
+    if(ds){const dv=document.createElement("div");dv.className="d";dv.textContent=ds.filter(Boolean).join(" / ");e.appendChild(dv)}
+    e.append(img,sp);
+    const n=inFolders(ik(it.d,it.c)).length;
+    if(n){const t=document.createElement("div");t.className="in";t.textContent="📁"+n;e.appendChild(t)}
+    const b=document.createElement("button");
+    if(view==="src"){b.className="add";b.textContent="＋フォルダ";b.onclick=ev=>{ev.stopPropagation();openMenu(ev,ik(it.d,it.c))}}
+    else{b.className="rm";b.textContent="外す";b.onclick=ev=>{ev.stopPropagation();const f=F.folders.find(x=>x.id===view);f.items=f.items.filter(k=>k!==ik(it.d,it.c));save();render();buildGrid()}}
+    e.appendChild(b);
+    e.onclick=()=>jumpItem(it);
+    grid.appendChild(e)});
+  actIdx=-1;mark();
+}
+function mark(){
+  const a=activeIdx();
+  if(a===actIdx)return;
+  const old=grid.querySelector(".act");if(old)old.classList.remove("act");
+  actIdx=a;
+  if(a>=0){grid.children[a].classList.add("act");$("cur").textContent=list[a].d.label+"  #"+list[a].c[0]+"  "+fmt(list[a].c[1])}
+}
+function activeIdx(){
+  const t=v.currentTime;let a=-1,best=-1;
+  for(let i=0;i<list.length;i++){if(list[i].d.key!==activeSrc)continue;const s=list[i].c[1];if(s<=t+0.1&&s>best){best=s;a=i}}
+  return a;
+}
+/* ---- folders ---- */
+function renderFolders(){
+  const box=$("flist");box.innerHTML="";
+  F.folders.forEach(f=>{
+    const e=document.createElement("div");e.className="f"+(view===f.id?" on":"");
+    e.innerHTML='<span>📁</span><span class="n"></span><span class="k">'+f.items.length+'</span><span class="x" title="名前変更">✎</span><span class="x" title="削除">🗑</span>';
+    e.querySelector(".n").textContent=f.name;
+    e.onclick=()=>{view=f.id;flt="all";render();buildGrid()};
+    const xs=e.querySelectorAll(".x");
+    xs[0].onclick=ev=>{ev.stopPropagation();const n=prompt("フォルダ名",f.name);if(n){f.name=n;save();render()}};
+    xs[1].onclick=ev=>{ev.stopPropagation();if(confirm("フォルダ「"+f.name+"」を削除しますか？（元の画像は消えません）")){F.folders=F.folders.filter(x=>x!==f);if(view===f.id){view="src"}save();render();buildGrid()}};
+    e.ondragover=ev=>{ev.preventDefault();e.classList.add("drop")};
+    e.ondragleave=()=>e.classList.remove("drop");
+    e.ondrop=ev=>{ev.preventDefault();e.classList.remove("drop");addTo(f,ev.dataTransfer.getData("text/plain"))};
+    box.appendChild(e)});
+  if(view!=="src"){const e=document.createElement("div");e.className="f";e.innerHTML='<span>⬅</span><span class="n">動画に戻る</span>';e.onclick=()=>{view="src";render();buildGrid()};box.prepend(e)}
+}
+function addTo(f,key){if(!key||!byKey(key.split(":")[0]))return;if(!f.items.includes(key)){f.items.push(key);save()}renderFolders();if(view==="src")buildGrid()}
+function newFolder(){const n=prompt("フォルダ名");if(!n)return null;const f={id:"f"+Date.now(),name:n,items:[]};F.folders.push(f);save();return f}
+$("newf").onclick=()=>{if(newFolder()){render()}};
+function openMenu(ev,key){
+  const m=$("menu");m.innerHTML="";
+  F.folders.forEach(f=>{const d=document.createElement("div");d.textContent=(f.items.includes(key)?"✔ ":"　")+f.name;
+    d.onclick=()=>{if(f.items.includes(key))f.items=f.items.filter(k=>k!==key);else f.items.push(key);save();m.style.display="none";render();buildGrid()};m.appendChild(d)});
+  const d=document.createElement("div");d.textContent="＋ 新しいフォルダに追加";d.onclick=()=>{m.style.display="none";const f=newFolder();if(f){f.items.push(key);save();render();buildGrid()}};m.appendChild(d);
+  m.style.display="block";m.style.left=Math.min(ev.clientX,innerWidth-190)+"px";m.style.top=Math.min(ev.clientY,innerHeight-m.offsetHeight-10)+"px";
+}
+document.addEventListener("click",e=>{if(!e.target.closest("#menu"))$("menu").style.display="none"});
+$("exp").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(F,null,1)],{type:"application/json"}));a.download="cutplayer_folders.json";a.click()};
+$("imp").onclick=()=>{const i=document.createElement("input");i.type="file";i.accept=".json";i.onchange=()=>{i.files[0].text().then(t=>{try{const j=JSON.parse(t);if(j.folders){F=j;save();render();buildGrid()}}catch(e){alert("読み込めません")}})};i.click()};
+/* ---- misc ---- */
+let qt=null;$("q").oninput=e=>{clearTimeout(qt);qt=setTimeout(()=>{Q=e.target.value.trim();render();buildGrid()},200)};
+setInterval(mark,250);v.addEventListener("timeupdate",mark);
+v.addEventListener("error",()=>{if(v.getAttribute("src"))$("warn").textContent="動画を読み込めません（ドライブが接続されているか確認してください）"});
+document.addEventListener("keydown",e=>{
+  if(e.target.closest("input,textarea"))return;
+  if(e.key==="ArrowRight"||e.key==="ArrowLeft"){e.preventDefault();
+    const n=Math.max(0,Math.min(list.length-1,(actIdx<0?0:actIdx)+(e.key==="ArrowRight"?1:-1)));if(list[n])jumpItem(list[n])}
+  else if(e.key===" "&&e.target===document.body){e.preventDefault();v.paused?v.play():v.pause()}});
+addEventListener("resize",setTp);
+loadSource(cur);render();buildGrid();setTp();
+</script></body></html>

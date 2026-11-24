@@ -1,0 +1,389 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>カットボード</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@700&display=swap">
+<style>
+/* Layout: sticky player over a thumbnail wall, folders and videos in a left rail. Dark-first, built for reviewing footage. */
+:root{
+  --bg:#14161a; --panel:#1c1f25; --panel2:#262a32; --line:#333844;
+  --fg:#e8eaee; --mut:#8d94a3; --accent:#f2b134; --accent-fg:#1a1300;
+  --warn:#ff7a6b; --ok:#5fcf9a;
+  --f-body:"Noto Sans JP","Yu Gothic UI",system-ui,sans-serif; --f-head:"Zen Kaku Gothic New","Noto Sans JP",sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  --bg:#f3f4f6; --panel:#ffffff; --panel2:#e9ebef; --line:#d3d7de; --fg:#1b1e24; --mut:#5d6575;
+  --accent:#b86e00; --accent-fg:#ffffff; --warn:#c0392b; --ok:#1f8f5f; color-scheme:light}}
+:root[data-theme="light"]{
+  --bg:#f3f4f6; --panel:#ffffff; --panel2:#e9ebef; --line:#d3d7de; --fg:#1b1e24; --mut:#5d6575;
+  --accent:#b86e00; --accent-fg:#ffffff; --warn:#c0392b; --ok:#1f8f5f; color-scheme:light}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--f-body)}
+body{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px}
+h1{font:700 20px var(--f-head);margin:0}
+button,select,input[type=text],textarea{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}button:hover{border-color:var(--mut)}
+button.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:700}
+button.on{border-color:var(--accent);color:var(--accent)}
+button:focus-visible,select:focus-visible,input:focus-visible,.c:focus-visible,.f:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-bottom:12px}
+header .sp{flex:1}
+.set{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;color:var(--mut);font-size:12px}
+.set label{display:flex;align-items:center;gap:6px}
+input[type=range]{accent-color:var(--accent);width:110px}
+#app{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;align-items:start}
+#rail{display:flex;flex-direction:column;gap:14px;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;min-width:0}
+#rail h2{font-size:12px;color:var(--mut);margin:0 0 6px;font-weight:500;letter-spacing:.06em}
+.item{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent;min-width:0}
+.item:hover{background:var(--panel)}.item.on{background:var(--panel);border-color:var(--accent)}.item.drop{border-color:var(--fg);background:var(--panel2)}
+.item .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .k{color:var(--mut);font-size:12px;font-variant-numeric:tabular-nums}
+.item .x{background:none;border:none;padding:0 3px;color:var(--mut)}
+.bar{height:3px;background:var(--panel2);border-radius:2px;overflow:hidden;margin-top:3px}.bar i{display:block;height:100%;background:var(--accent)}
+#stage{min-width:0}
+#top{position:sticky;top:0;z-index:5;background:var(--bg);padding-bottom:8px}
+#box{position:relative;background:#000;aspect-ratio:16/9;max-height:46vh;margin:0 auto;border-radius:8px;overflow:hidden}
+#box video{width:100%;height:100%;display:block}
+#empty{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;text-align:center;padding:16px;color:#cdd2dc}
+#bar2{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:8px}
+#cur{font:700 16px var(--f-head);color:var(--accent);font-variant-numeric:tabular-nums}
+#msg{color:var(--mut);font-size:12px}#msg.err{color:var(--warn)}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;padding-top:8px}
+.c{position:relative;cursor:pointer;aspect-ratio:16/9;background:var(--panel2);border-radius:4px;outline:3px solid transparent;overflow:hidden}
+.c img{width:100%;height:100%;object-fit:cover;display:block}
+.c span{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.72);color:#f2b134;padding:1px 6px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.c.act{outline-color:var(--accent)}.c:hover{outline-color:var(--mut)}
+.c .add,.c .rm{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.75);color:#fff;border-color:#777;padding:1px 8px;display:none;font-size:12px}
+.c:hover .add,.c:hover .rm,.c:focus-within .add,.c:focus-within .rm{display:block}
+.c .in{position:absolute;top:4px;left:4px;background:var(--accent);color:var(--accent-fg);border-radius:4px;padding:0 6px;font-size:11px}
+.hint{color:var(--mut);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px}
+#drop{border:2px dashed var(--line);border-radius:10px;padding:32px 16px;text-align:center;color:var(--mut)}
+#drop.over{border-color:var(--accent);color:var(--fg)}
+#menu{position:fixed;z-index:30;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px;display:none;max-height:60vh;overflow:auto;min-width:170px}
+#menu div{padding:6px 10px;cursor:pointer;border-radius:4px}#menu div:hover{background:var(--panel2)}
+#modal{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px}
+#modal .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;width:min(460px,100%);display:flex;flex-direction:column;gap:10px}
+#modal textarea{width:100%;height:160px;font-family:ui-monospace,monospace;font-size:12px}
+#modal .row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+@media(max-width:820px){#app{grid-template-columns:minmax(0,1fr)}#rail{position:static;max-height:none}#box{max-height:36vh}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+
+<header>
+  <h1>カットボード</h1>
+  <button class="pri" id="addv">動画を追加</button>
+  <div class="set">
+    <label>解析方式 <select id="spd"><option value="full" selected>精密（全フレームを高速デコード）</option><option value="key">最速（キーフレームのみ）</option><option value="p8">互換（再生しながら8倍）</option><option value="p4">互換（再生しながら4倍）</option></select></label>
+    <label>感度 <input type="range" id="sens" min="1" max="10" value="7" aria-label="カット検出の感度"><span id="sensv">6</span></label>
+  </div>
+  <span class="sp"></span>
+  <span class="hint">動画はこのPCのブラウザ内だけで処理され、送信されません</span>
+</header>
+
+<div id="app">
+  <aside id="rail">
+    <section><h2>動画</h2><div id="vlist"></div></section>
+    <section><h2>フォルダ</h2><div id="flist"></div>
+      <button id="newf" style="margin-top:6px;width:100%">＋ 新しいフォルダ</button>
+      <div style="display:flex;gap:6px;margin-top:6px"><button id="exp" style="flex:1">書き出し</button><button id="imp" style="flex:1">読み込み</button></div>
+      <p class="hint" style="margin:6px 0 0">フォルダはこのブラウザに保存されます</p></section>
+  </aside>
+  <main id="stage">
+    <div id="top">
+      <div id="box"><video id="v" controls preload="metadata" playsinline></video>
+        <div id="empty"><div id="emptyt">動画を追加すると、カットを自動で見つけてサムネイルにします</div><button class="pri" id="addv2">動画を選ぶ</button></div></div>
+      <div id="bar2"><span id="cur">-</span><span id="msg">サムネをクリックでその時刻へジャンプ ／ ←→で前後のカット ／ Spaceで再生・停止</span>
+        <button id="stopb" hidden>解析を止める</button><button id="redo" hidden>この動画を再解析</button></div>
+    </div>
+    <div id="drop">ここに動画ファイルをドラッグしても追加できます</div>
+    <div id="grid"></div>
+  </main>
+</div>
+<div id="menu"></div>
+<div id="modal"><div class="box" id="mbox"></div></div>
+<input type="file" id="file" accept="video/*" multiple hidden>
+
+<script src="https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const fmt=t=>{t=Math.floor(t);const h=Math.floor(t/3600),m=Math.floor(t%3600/60),s=t%60;return (h?h+":":"")+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")};
+const player=$("v"),grid=$("grid");
+const videos=new Map(); let curKey=null, view="video", list=[], actIdx=-1, playerKey=null, pendingSeek=null, needFileFor=null;
+let F={folders:[]}; try{F=JSON.parse(localStorage.getItem("cutboard.folders.v1")||'{"folders":[]}')}catch(e){}
+const saveF=()=>{try{localStorage.setItem("cutboard.folders.v1",JSON.stringify(F))}catch(e){}};
+try{const s=JSON.parse(localStorage.getItem("cutboard.set")||"{}");if(s.spd)$("spd").value=s.spd;if(s.sens){$("sens").value=s.sens}}catch(e){}
+$("sensv").textContent=$("sens").value;
+$("sens").oninput=()=>{$("sensv").textContent=$("sens").value;saveSet()};$("spd").onchange=saveSet;
+function saveSet(){try{localStorage.setItem("cutboard.set",JSON.stringify({spd:$("spd").value,sens:$("sens").value}))}catch(e){}}
+
+/* ---------- storage (IndexedDB) ---------- */
+let db=null;
+function dbOpen(){return new Promise(res=>{try{const r=indexedDB.open("cutboard",1);r.onupgradeneeded=()=>r.result.createObjectStore("videos",{keyPath:"key"});r.onsuccess=()=>res(r.result);r.onerror=()=>res(null)}catch(e){res(null)}})}
+const dbAll=()=>new Promise(res=>{if(!db)return res([]);try{const q=db.transaction("videos").objectStore("videos").getAll();q.onsuccess=()=>res(q.result||[]);q.onerror=()=>res([])}catch(e){res([])}});
+const dbPut=v=>{if(!db)return;try{db.transaction("videos","readwrite").objectStore("videos").put({key:v.key,name:v.name,size:v.size,duration:v.duration,cuts:v.cuts})}catch(e){}};
+const dbDel=k=>{if(!db)return;try{db.transaction("videos","readwrite").objectStore("videos").delete(k)}catch(e){}};
+
+/* ---------- dialogs (alert/prompt/confirm are blocked in the viewer) ---------- */
+function modal(html,bind){const b=$("mbox");b.innerHTML=html;$("modal").style.display="flex";bind(b);const f=b.querySelector("input,textarea");if(f)f.focus()}
+const closeModal=()=>{$("modal").style.display="none"};
+$("modal").addEventListener("mousedown",e=>{if(e.target===$("modal"))closeModal()});
+function askName(title,def,cb){modal('<b></b><input type="text" id="nm" style="width:100%"><div class="row"><button id="mc">キャンセル</button><button class="pri" id="mo">OK</button></div>',b=>{b.querySelector("b").textContent=title;const i=b.querySelector("#nm");i.value=def||"";const ok=()=>{const v=i.value.trim();if(v){closeModal();cb(v)}};b.querySelector("#mo").onclick=ok;b.querySelector("#mc").onclick=closeModal;i.onkeydown=e=>{if(e.key==="Enter")ok();if(e.key==="Escape")closeModal()}})}
+function askConfirm(msg,cb){modal('<span></span><div class="row"><button id="mc">キャンセル</button><button class="pri" id="mo">削除する</button></div>',b=>{b.querySelector("span").textContent=msg;b.querySelector("#mo").onclick=()=>{closeModal();cb()};b.querySelector("#mc").onclick=closeModal})}
+
+/* ---------- adding videos ---------- */
+const vkey=f=>f.name+"|"+f.size+"|"+f.lastModified;
+$("addv").onclick=$("addv2").onclick=()=>{needFileFor=null;$("file").click()};
+$("file").onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)addFiles(fs)};
+["dragover","dragenter"].forEach(n=>document.addEventListener(n,e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes("Files")){e.preventDefault();$("drop").classList.add("over")}}));
+["dragleave","drop"].forEach(n=>document.addEventListener(n,()=>$("drop").classList.remove("over")));
+document.addEventListener("drop",e=>{if(e.dataTransfer&&e.dataTransfer.files.length){e.preventDefault();addFiles([...e.dataTransfer.files].filter(f=>f.type.startsWith("video/")||/\.(mp4|mkv|webm|mov)$/i.test(f.name)))}});
+
+function attach(v,file){if(v.url)URL.revokeObjectURL(v.url);v.file=file;v.url=URL.createObjectURL(file)}
+function addFiles(files){
+  let first=null;
+  for(const f of files){
+    const k=vkey(f);let v=videos.get(k);
+    if(!v){v={key:k,name:f.name,size:f.size,duration:0,cuts:[],status:"idle",progress:0};videos.set(k,v)}
+    attach(v,f);
+    if(!v.cuts.length&&v.status!=="queued"&&v.status!=="analyzing"){v.status="queued";queue.push(v)}else if(v.cuts.length)v.status="done";
+    if(!first)first=v;
+    if(needFileFor&&needFileFor.key===k){const n=needFileFor;needFileFor=null;selectVideo(k,false);jump(v,n.t);}
+  }
+  if(first&&!(needFileFor===null&&view==="video"&&curKey&&videos.get(curKey)&&videos.get(curKey).url&&playerKey===curKey&&files.length&&false))selectVideo(first.key,false);
+  runQueue();renderAll();
+}
+
+/* ---------- analysis ---------- */
+const queue=[];let active=0;const MAXP=Math.max(2,Math.min(4,(navigator.hardwareConcurrency||4)>>1));
+function runQueue(){while(active<MAXP&&queue.length){const v=queue.shift();active++;
+  (async()=>{try{await analyze(v)}catch(e){v.status="error";v.err=String(e&&e.message||e);setMsg(v.name+": "+v.err,true)}active--;renderAll();runQueue()})()}}
+const once=(el,ev)=>new Promise((res,rej)=>{const ok=()=>{el.removeEventListener("error",er);res()};const er=()=>{el.removeEventListener(ev,ok);rej(new Error("この動画をブラウザで読み込めません（形式未対応の可能性）"))};el.addEventListener(ev,ok,{once:true});el.addEventListener("error",er,{once:true})});
+async function analyzePlay(v,rate){
+  const el=document.createElement("video");el.muted=true;el.playsInline=true;el.preload="auto";
+  el.style.cssText="position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none";
+  document.body.appendChild(el);el.src=v.url;
+  try{
+    await once(el,"loadedmetadata");v.duration=el.duration||0;
+    const W=64,H=36,c=document.createElement("canvas");c.width=W;c.height=H;const g=c.getContext("2d",{willReadFrequently:true});
+    const tc=document.createElement("canvas");tc.width=320;tc.height=180;const tg=tc.getContext("2d");
+    const thr=0.22-0.015*Number($("sens").value), minGap=0.3;
+    let prev=null,pm=0,lastT=-9,lastUi=0,lastFt=-9,sparse=0,total=0;
+    const frame=t=>{
+      g.drawImage(el,0,0,W,H);const d=g.getImageData(0,0,W,H).data;const cur=new Uint8Array(W*H);let sad=0;
+      for(let i=0,j=0;i<d.length;i+=4,j++){const l=d[i]*.3+d[i+1]*.59+d[i+2]*.11;cur[j]=l;if(prev)sad+=Math.abs(l-prev[j])}
+      /* ffmpegのシーン検出と同じ考え方: 前の差分から急に跳ね上がった所をカットとみなす */
+      const m=prev?sad/(W*H)/255:0, score=prev?Math.min(m,Math.abs(m-pm)):0;
+      total++;if(t-lastFt>0.6)sparse++;lastFt=t;
+      const isCut=!prev||(score>thr&&t-lastT>minGap);
+      prev=cur;pm=m;
+      if(isCut){tg.drawImage(el,0,0,320,180);v.cuts.push({t:Math.round(t*1000)/1000,img:tc.toDataURL("image/jpeg",.72)});lastT=t}
+      v.progress=v.duration?t/v.duration:0;
+      const now=performance.now();if(now-lastUi>600){lastUi=now;renderProgress(v)}
+    };
+    el.playbackRate=rate;
+    const done=new Promise(res=>{
+      el.addEventListener("ended",res,{once:true});
+      const poll=setInterval(()=>{if(v.cancel){clearInterval(poll);res()}},300);el.addEventListener("ended",()=>clearInterval(poll),{once:true});
+    });
+    if("requestVideoFrameCallback" in el){
+      const loop=(now,meta)=>{frame(meta.mediaTime);if(!el.ended&&!v.cancel)el.requestVideoFrameCallback(loop)};
+      el.requestVideoFrameCallback(loop);
+    }else{
+      let lt=-1;const loop=()=>{if(el.currentTime!==lt){lt=el.currentTime;frame(lt)}if(!el.ended&&!v.cancel)requestAnimationFrame(loop)};requestAnimationFrame(loop);
+    }
+    await el.play();await done;v.sparse=total>0&&sparse/total>0.3;
+  }finally{el.pause();el.removeAttribute("src");el.load();el.remove()}
+  finishV(v);if(v.sparse)setMsg("※ブラウザがコマを間引いたため、一部のカットを見逃している可能性があります。解析速度を下げて再解析してください")
+}
+
+function finishV(v){if(v.cancel){v.status="idle";v.cuts=[];v.progress=0;return}v.status="done";v.progress=1;dbPut(v)}
+async function analyze(v){
+  v.status="analyzing";v.progress=0;v.cuts=[];v.cancel=false;v.note="";renderAll();
+  const mode=$("spd").value;
+  if(mode==="full"||mode==="key"){
+    try{await analyzeFast(v,mode);finishV(v);return}
+    catch(e){if(v.cancel){finishV(v);return}v.cuts=[];v.progress=0;v.note="高速方式に対応していない動画のため、再生方式で解析しました"}
+  }
+  await analyzePlay(v,mode==="p4"?4:8);
+  if(v.note&&v.status==="done")setMsg("※"+v.note);
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function analyzeFast(v,mode){
+  if(!window.VideoDecoder||!window.EncodedVideoChunk||!window.MP4Box)throw new Error("nofast");
+  const file=v.file,size=file.size,mp4=MP4Box.createFile();
+  let track=null,decoder=null,started=false,err=null,fpsStride=3,fcount=0;
+  const samples=[];
+  mp4.onError=()=>{err=new Error("mp4")};
+  mp4.onReady=info=>{track=info.videoTracks[0]};
+  mp4.onSamples=(id,u,ss)=>{for(const s of ss)samples.push(s)};
+  const W=64,H=36,c=document.createElement("canvas");c.width=W;c.height=H;const g=c.getContext("2d",{willReadFrequently:true});
+  const tc=document.createElement("canvas");tc.width=320;tc.height=180;const tg=tc.getContext("2d");
+  const sens=Number($("sens").value);
+  const thr=mode==="key"?0.26-0.015*sens:0.22-0.015*sens, minGap=0.3;
+  let prev=null,pm=0,lastT=-9,lastUi=0;
+  const onFrame=fr=>{
+    try{
+      const t=fr.timestamp/1e6;
+      if(mode==="full"&&(fcount++%fpsStride)!==0)return;
+      g.drawImage(fr,0,0,W,H);const d=g.getImageData(0,0,W,H).data;const cur=new Uint8Array(W*H);let sad=0;
+      for(let i=0,j=0;i<d.length;i+=4,j++){const l=d[i]*.3+d[i+1]*.59+d[i+2]*.11;cur[j]=l;if(prev)sad+=Math.abs(l-prev[j])}
+      const m=prev?sad/(W*H)/255:0;
+      const score=mode==="key"?m:(prev?Math.min(m,Math.abs(m-pm)):0);
+      const isCut=!prev||(score>thr&&t-lastT>minGap);
+      prev=cur;pm=m;
+      if(isCut){tg.drawImage(fr,0,0,320,180);v.cuts.push({t:Math.round(t*1000)/1000,img:tc.toDataURL("image/jpeg",.72)});lastT=t}
+      v.progress=v.duration?Math.min(1,t/v.duration):0;
+      const now=performance.now();if(now-lastUi>400){lastUi=now;renderProgress(v)}
+    }finally{fr.close()}
+  };
+  const setup=async()=>{
+    if(!track)return false;
+    const trak=mp4.getTrackById(track.id);let desc=null;
+    for(const en of trak.mdia.minf.stbl.stsd.entries){const box=en.avcC||en.hvcC||en.vpcC||en.av1C;if(box){const ds=new DataStream(undefined,0,DataStream.BIG_ENDIAN);box.write(ds);desc=new Uint8Array(ds.buffer,8);break}}
+    const cfg={codec:track.codec,codedWidth:track.video.width,codedHeight:track.video.height};if(desc)cfg.description=desc;
+    const sup=await VideoDecoder.isConfigSupported(cfg);if(!sup.supported)throw new Error("codec");
+    v.duration=track.duration/track.timescale;
+    if(track.nb_samples&&v.duration)fpsStride=Math.max(1,Math.round((track.nb_samples/v.duration)/8));
+    decoder=new VideoDecoder({output:onFrame,error:e=>{err=e}});decoder.configure(cfg);
+    mp4.setExtractionOptions(track.id,null,{nbSamples:300});mp4.start();started=true;return true;
+  };
+  let seenKey=false;
+  const drain=async()=>{
+    while(samples.length&&!err&&!v.cancel){
+      if(decoder.decodeQueueSize>25){await sleep(1);continue}
+      const s=samples.shift();
+      if(mode==="key"&&!s.is_sync){continue}
+      if(!seenKey){if(!s.is_sync)continue;seenKey=true}
+      decoder.decode(new EncodedVideoChunk({type:s.is_sync?"key":"delta",timestamp:Math.round(1e6*s.cts/s.timescale),duration:Math.round(1e6*s.duration/s.timescale),data:s.data}));
+    }
+  };
+  try{
+    const CH=8*1024*1024;let pos=0,guard=0,lastEnd=-1;
+    while(guard++<4000&&!err&&!v.cancel){
+      const end=Math.min(pos+CH,size);
+      const buf=await file.slice(pos,end).arrayBuffer();buf.fileStart=pos;
+      const next=mp4.appendBuffer(buf);
+      if(!started&&track)await setup();
+      if(started)await drain();
+      if(end>=size&&(typeof next!=="number"||next>=size||next===lastEnd))break;
+      lastEnd=next;
+      pos=(typeof next==="number"&&next>=0&&next!==end)?next:end;
+      if(pos>=size)break;
+    }
+    if(!started)throw new Error("nofast");
+    mp4.flush();await drain();
+    if(err)throw err;
+    if(decoder.state==="configured")await decoder.flush();
+    if(!v.cuts.length&&!v.cancel)throw new Error("nocuts");
+  }finally{try{if(decoder&&decoder.state!=="closed")decoder.close()}catch(e){}}
+}
+function renderProgress(v){const b=document.querySelector('[data-bar="'+CSS.escape(v.key)+'"]');if(b)b.style.width=Math.round(v.progress*100)+"%";if(v.key===curKey){setMsg("解析中 "+Math.round(v.progress*100)+"%（"+v.cuts.length+"カット）。このタブを表示したままにしてください")}}
+$("stopb").onclick=()=>{const v=videos.get(curKey);if(v&&v.status==="analyzing")v.cancel=true};
+$("redo").onclick=()=>{const v=videos.get(curKey);if(!v||!v.url)return;v.cuts=[];v.status="queued";queue.push(v);runQueue();renderAll()};
+
+/* ---------- playback ---------- */
+const setMsg=(t,err)=>{$("msg").textContent=t;$("msg").className=err?"err":""};
+function loadPlayer(v){
+  if(!v||!v.url){player.pause();player.removeAttribute("src");player.load();playerKey=null;$("empty").style.display="flex";$("emptyt").textContent=v?"この動画のファイルを選び直してください（保存済みのカットは残っています）":"動画を追加すると、カットを自動で見つけてサムネイルにします";return}
+  $("empty").style.display="none";
+  if(playerKey!==v.key){player.src=v.url;playerKey=v.key}
+}
+player.addEventListener("loadedmetadata",()=>{if(pendingSeek!=null){const t=pendingSeek;pendingSeek=null;player.currentTime=t;player.play().catch(()=>{})}});
+function jump(v,t){
+  if(!v.url){needFileFor={key:v.key,t};setMsg("「"+v.name+"」のファイルを選んでください",true);$("file").click();return}
+  if(playerKey!==v.key){curKey=v.key;loadPlayer(v);pendingSeek=t+0.03;renderAll(true)}
+  else{player.currentTime=t+0.03;player.play().catch(()=>{})}
+}
+player.addEventListener("error",()=>{if(player.getAttribute("src"))setMsg("この動画は再生できません（ブラウザ非対応の形式の可能性）",true)});
+function selectVideo(k,rerender=true){curKey=k;view="video";loadPlayer(videos.get(k));if(rerender)renderAll()}
+
+/* ---------- rendering ---------- */
+const itemKey=(v,c)=>v.key+"@"+c.t;
+function inFolders(key){return F.folders.filter(f=>f.items.includes(key))}
+function renderAll(keepScroll){renderRail();buildGrid();const v=videos.get(curKey);$("stopb").hidden=!(v&&v.status==="analyzing");$("redo").hidden=!(v&&v.url&&v.status==="done");
+  if(v&&v.status==="done"&&view==="video")setMsg("サムネをクリックでその時刻へジャンプ ／ ←→で前後のカット ／ Spaceで再生・停止");
+  if(v&&v.status==="error")setMsg(v.name+": "+v.err,true);
+  if(v&&v.status==="queued")setMsg("解析待ちです");
+  $("drop").style.display=videos.size?"none":"block"}
+function renderRail(){
+  const vl=$("vlist");vl.innerHTML="";
+  if(!videos.size){vl.innerHTML='<div class="hint">まだ動画がありません</div>'}
+  videos.forEach(v=>{const e=document.createElement("div");e.className="item"+(view==="video"&&curKey===v.key?" on":"");e.tabIndex=0;
+    const st=v.status==="analyzing"?Math.round(v.progress*100)+"%":v.status==="queued"?"待機":v.url?v.cuts.length:"未接続";
+    e.innerHTML='<div style="flex:1;min-width:0"><div class="n"></div><div class="bar" '+(v.status==="analyzing"?"":"hidden")+'><i data-bar="'+v.key.replace(/"/g,"&quot;")+'" style="width:'+Math.round(v.progress*100)+'%"></i></div></div><span class="k">'+st+'</span><button class="x" title="一覧から削除">🗑</button>';
+    e.querySelector(".n").textContent=v.name;
+    e.onclick=()=>selectVideo(v.key);e.onkeydown=ev=>{if(ev.key==="Enter")selectVideo(v.key)};
+    e.querySelector(".x").onclick=ev=>{ev.stopPropagation();askConfirm("「"+v.name+"」を一覧と保存済みサムネから削除しますか？（動画ファイルは消えません）",()=>{if(v.status==="analyzing")v.cancel=true;videos.delete(v.key);dbDel(v.key);if(curKey===v.key){curKey=null;loadPlayer(null)}renderAll()})};
+    vl.appendChild(e)});
+  const fl=$("flist");fl.innerHTML="";
+  F.folders.forEach(f=>{const e=document.createElement("div");e.className="item"+(view===f.id?" on":"");e.tabIndex=0;
+    e.innerHTML='<span>📁</span><span class="n"></span><span class="k">'+f.items.length+'</span><button class="x" title="名前変更">✎</button><button class="x" title="削除">🗑</button>';
+    e.querySelector(".n").textContent=f.name;
+    e.onclick=()=>{view=f.id;renderAll()};e.onkeydown=ev=>{if(ev.key==="Enter"){view=f.id;renderAll()}};
+    const xs=e.querySelectorAll(".x");
+    xs[0].onclick=ev=>{ev.stopPropagation();askName("フォルダ名",f.name,n=>{f.name=n;saveF();renderAll()})};
+    xs[1].onclick=ev=>{ev.stopPropagation();askConfirm("フォルダ「"+f.name+"」を削除しますか？（動画とサムネは消えません）",()=>{F.folders=F.folders.filter(x=>x!==f);if(view===f.id)view="video";saveF();renderAll()})};
+    e.ondragover=ev=>{ev.preventDefault();e.classList.add("drop")};e.ondragleave=()=>e.classList.remove("drop");
+    e.ondrop=ev=>{ev.preventDefault();ev.stopPropagation();e.classList.remove("drop");addTo(f,ev.dataTransfer.getData("text/plain"))};
+    fl.appendChild(e)});
+  if(view!=="video"){const e=document.createElement("div");e.className="item";e.innerHTML='<span>⬅</span><span class="n">動画に戻る</span>';e.onclick=()=>{view="video";renderAll()};fl.prepend(e)}
+}
+function buildGrid(){
+  let items=[];
+  if(view==="video"){const v=videos.get(curKey);if(v)items=v.cuts.map(c=>({v,c}))}
+  else{const f=F.folders.find(x=>x.id===view);if(f)f.items.forEach(k=>{const i=k.lastIndexOf("@"),vk=k.slice(0,i),t=Number(k.slice(i+1)),v=videos.get(vk);if(!v)return;const c=v.cuts.find(c=>c.t===t);if(c)items.push({v,c})})}
+  list=items;grid.innerHTML="";
+  if(!items.length){const v=videos.get(curKey);grid.innerHTML='<div class="hint" style="grid-column:1/-1;padding:8px 0">'+(view!=="video"?"このフォルダは空です。サムネの「＋フォルダ」か、ドラッグで追加できます。":v&&(v.status==="analyzing"||v.status==="queued")?"解析中です。見つかったカットから順に表示されます。":"表示するカットがありません。")+"</div>"}
+  items.forEach((it,i)=>{
+    const e=document.createElement("div");e.className="c";e.tabIndex=0;e.draggable=true;
+    e.ondragstart=ev=>ev.dataTransfer.setData("text/plain",itemKey(it.v,it.c));
+    const img=document.createElement("img");img.src=it.c.img;img.alt="";img.loading="lazy";
+    const sp=document.createElement("span");sp.textContent=(view!=="video"?it.v.name.replace(/\.[^.]+$/,"")+" ":"")+"#"+(it.v.cuts.indexOf(it.c)+1)+" "+fmt(it.c.t);
+    e.append(img,sp);
+    const n=inFolders(itemKey(it.v,it.c)).length;if(n){const t=document.createElement("div");t.className="in";t.textContent="📁"+n;e.appendChild(t)}
+    const b=document.createElement("button");
+    if(view==="video"){b.className="add";b.textContent="＋フォルダ";b.onclick=ev=>{ev.stopPropagation();openMenu(ev,itemKey(it.v,it.c))}}
+    else{b.className="rm";b.textContent="外す";b.onclick=ev=>{ev.stopPropagation();const f=F.folders.find(x=>x.id===view);f.items=f.items.filter(k=>k!==itemKey(it.v,it.c));saveF();renderAll()}}
+    e.appendChild(b);e.onclick=()=>jump(it.v,it.c.t);e.onkeydown=ev=>{if(ev.key==="Enter")jump(it.v,it.c.t)};
+    grid.appendChild(e)});
+  actIdx=-1;mark();
+}
+function mark(){
+  let a=-1;const t=player.currentTime;
+  if(playerKey){let best=-1;list.forEach((it,i)=>{if(it.v.key===playerKey&&it.c.t<=t+0.1&&it.c.t>best){best=it.c.t;a=i}})}
+  if(a===actIdx)return;const old=grid.querySelector(".act");if(old)old.classList.remove("act");actIdx=a;
+  if(a>=0&&grid.children[a]){grid.children[a].classList.add("act");$("cur").textContent=list[a].v.name.replace(/\.[^.]+$/,"")+"  #"+(list[a].v.cuts.indexOf(list[a].c)+1)+"  "+fmt(list[a].c.t)}
+}
+setInterval(mark,250);player.addEventListener("timeupdate",mark);
+
+/* ---------- folders ---------- */
+function addTo(f,key){if(!key||!f)return;const i=key.lastIndexOf("@");if(!videos.has(key.slice(0,i)))return;if(!f.items.includes(key)){f.items.push(key);saveF()}renderAll()}
+function newFolder(cb){askName("フォルダ名","",n=>{const f={id:"f"+Date.now(),name:n,items:[]};F.folders.push(f);saveF();cb&&cb(f);renderAll()})}
+$("newf").onclick=()=>newFolder();
+function openMenu(ev,key){
+  const m=$("menu");m.innerHTML="";
+  F.folders.forEach(f=>{const d=document.createElement("div");d.textContent=(f.items.includes(key)?"✔ ":"　")+f.name;
+    d.onclick=()=>{f.items=f.items.includes(key)?f.items.filter(k=>k!==key):f.items.concat(key);saveF();m.style.display="none";renderAll()};m.appendChild(d)});
+  const d=document.createElement("div");d.textContent="＋ 新しいフォルダに追加";d.onclick=()=>{m.style.display="none";newFolder(f=>{f.items.push(key);saveF()})};m.appendChild(d);
+  m.style.display="block";m.style.left=Math.max(8,Math.min(ev.clientX,innerWidth-m.offsetWidth-8))+"px";m.style.top=Math.max(8,Math.min(ev.clientY,innerHeight-m.offsetHeight-8))+"px";
+}
+document.addEventListener("click",e=>{if(!e.target.closest("#menu"))$("menu").style.display="none"});
+$("exp").onclick=()=>modal('<b>フォルダの書き出し</b><span class="hint">下の文字列をコピーして保存してください。別のブラウザで「読み込み」に貼り付けると復元できます（サムネ画像は含まれません）。</span><textarea readonly id="ta"></textarea><div class="row"><button id="mc">閉じる</button><button class="pri" id="cp">コピー</button></div>',b=>{const ta=b.querySelector("#ta");ta.value=JSON.stringify(F);b.querySelector("#mc").onclick=closeModal;b.querySelector("#cp").onclick=()=>{ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).catch(()=>document.execCommand&&document.execCommand("copy"))}});
+$("imp").onclick=()=>modal('<b>フォルダの読み込み</b><span class="hint">書き出した文字列を貼り付けてください。今のフォルダに追加されます。</span><textarea id="ta"></textarea><div class="row"><button id="mc">キャンセル</button><button class="pri" id="ok">読み込む</button></div>',b=>{b.querySelector("#mc").onclick=closeModal;b.querySelector("#ok").onclick=()=>{try{const j=JSON.parse(b.querySelector("#ta").value);if(!j.folders)throw 0;j.folders.forEach(f=>{const ex=F.folders.find(x=>x.id===f.id);if(ex){f.items.forEach(k=>{if(!ex.items.includes(k))ex.items.push(k)})}else F.folders.push(f)});saveF();closeModal();renderAll()}catch(e){b.querySelector(".hint").textContent="読み込めません。書き出した文字列をそのまま貼り付けてください。";b.querySelector(".hint").style.color="var(--warn)"}}});
+
+/* ---------- keys ---------- */
+document.addEventListener("keydown",e=>{
+  if(e.target.closest("input,textarea,select")||$("modal").style.display==="flex")return;
+  if(e.key==="ArrowRight"||e.key==="ArrowLeft"){e.preventDefault();const n=Math.max(0,Math.min(list.length-1,(actIdx<0?0:actIdx)+(e.key==="ArrowRight"?1:-1)));if(list[n])jump(list[n].v,list[n].c.t)}
+  else if(e.key===" "&&(e.target===document.body||e.target.classList.contains("c"))){e.preventDefault();player.paused?player.play():player.pause()}
+});
+
+/* ---------- boot ---------- */
+(async()=>{db=await dbOpen();const rows=await dbAll();rows.forEach(r=>videos.set(r.key,{key:r.key,name:r.name,size:r.size,duration:r.duration,cuts:r.cuts||[],status:"done",progress:1}));
+  if(rows.length){curKey=rows[0].key}renderAll();if(curKey)loadPlayer(videos.get(curKey))})();
+window.__cb={addFiles,videos};
+</script>
